@@ -286,3 +286,8 @@ fun isVoiceStopCommand(transcript: String): Boolean {
     ADDRESS_PREFIXES.firstOrNull { text.startsWith("$it ") }?.let { text = text.removePrefix(it).trim() }
     return text in STOP_PHRASES
 }
+
+/** Phone-call synthesis. Failure must not select another voice or contact server TTS. */
+fun interface CallSpeech {
+    suspend fun synthesize(text: String): SpokenAudio
+}

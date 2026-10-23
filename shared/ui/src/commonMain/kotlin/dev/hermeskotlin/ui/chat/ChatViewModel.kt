@@ -1,5 +1,6 @@
 package dev.hermeskotlin.ui.chat
 
+import dev.hermeskotlin.core.voice.CallSpeech
 import dev.hermeskotlin.core.voice.ReadAloudVoices
 import dev.hermeskotlin.core.voice.InMemoryReadAloudVoices
 import androidx.compose.foundation.text.input.TextFieldState
@@ -209,6 +210,7 @@ class ChatViewModel(
     deviceLock: DeviceLock = DeviceLock.None,
     /** The Next Prompt plugin's suggestions; none without it. */
     nextPromptApi: NextPromptApi? = null,
+    callSpeech: CallSpeech? = null,
 ) : ViewModel(), ChatActions {
 
     /** Dictation, voice chat and Read aloud for the open chat. */
@@ -217,6 +219,7 @@ class ChatViewModel(
         speechStreams = speechStreams,
         deviceLock = deviceLock,
         liveCalls = liveCalls,
+        callSpeech = callSpeech,
         readAloudVoices = readAloudVoices ?: InMemoryReadAloudVoices(),
     )
 

@@ -1,5 +1,7 @@
 package dev.hermeskotlin.core.di
 
+import dev.hermeskotlin.core.voice.phonon.PhononCallSpeech
+import dev.hermeskotlin.core.voice.CallSpeech
 import dev.hermeskotlin.core.auth.AndroidLoopbackReceiver
 import dev.hermeskotlin.core.auth.LoopbackReceiver
 import dev.hermeskotlin.core.cache.KeystoreSealer
@@ -32,6 +34,7 @@ actual val platformModule: Module = module {
     single<LoopbackReceiver> { AndroidLoopbackReceiver("${androidContext().packageName}:/signed-in") }
     single { WallpaperStore(AndroidBlobFile(File(androidContext().filesDir, "wallpaper.jpg")), get()) }
     factory<VoiceRecorder> { AndroidVoiceRecorder() }
+    single<CallSpeech> { PhononCallSpeech(androidContext()) }
     single<SpeechPlayer> { AndroidSpeechPlayer(androidContext()) }
     single<ReadAloudVoices> { FileReadAloudVoices(File(androidContext().cacheDir, "read-aloud")) }
     // One per screen, like the recorder: the chat and the assistant panel each stop only their own.

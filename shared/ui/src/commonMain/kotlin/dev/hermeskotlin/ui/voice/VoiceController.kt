@@ -1,5 +1,6 @@
 package dev.hermeskotlin.ui.voice
 
+import dev.hermeskotlin.core.voice.CallSpeech
 import dev.hermeskotlin.core.chat.ChatMessage
 import dev.hermeskotlin.core.chat.ChatSession
 import dev.hermeskotlin.core.chat.ChatState
@@ -138,6 +139,8 @@ class VoiceController(
     private val speechStreams: SpeechStreams? = null,
     /** An approval is only taken by voice while the phone is unlocked. */
     private val deviceLock: DeviceLock = DeviceLock.None,
+    /** On-phone call voice. When present, call output never uses gateway synthesis or GPT-Live. */
+    private val callSpeech: CallSpeech? = null,
     private val liveCalls: LiveCalls? = null,
 ) {
     private val _chat = MutableStateFlow(VoiceChatState())
@@ -210,7 +213,7 @@ class VoiceController(
         ) == true
         val job = scope.launch {
             try {
-                if (startLive(session, gateway, profile, opener)) return@launch
+                if (callSpeech == null && startLive(session, gateway, profile, opener)) return@launch
                 converseChained(session, gateway, profile, pauseMs, opener)
             } finally {
                 // Also a chat ended before it found its mode (End during the status check). An ending the person
@@ -232,7 +235,7 @@ class VoiceController(
 
     /** Desktop's chained voice chat: listen, send what you said, read the reply aloud, until it ends. */
     private suspend fun converseChained(session: ChatSession, gateway: GatewayUrl, profile: String?, pauseMs: Long, opener: CallReason?) = coroutineScope {
-        appScope.launch { audio.ttsLease(gateway, active = true, profile) }
+        if (callSpeech == null) appScope.launch { audio.ttsLease(gateway, active = true, profile) }
         // Read while the first listen goes on; it's needed once the first reply is on its way.
         val settings = async { audio.bargeIn(gateway, profile) }
         bargeIn = settings
@@ -266,7 +269,7 @@ class VoiceController(
             }
         } finally {
             bargeIn = null
-            appScope.launch { audio.ttsLease(gateway, active = false, profile) }
+            if (callSpeech == null) appScope.launch { audio.ttsLease(gateway, active = false, profile) }
         }
         settings.cancel()
     }
@@ -828,6 +831,7 @@ class VoiceController(
 
     /** The speech socket for one reply, unless this gateway has already shown it has none. */
     private suspend fun openSpeech(gateway: GatewayUrl, profile: String?): SpeechStream? {
+        if (callSpeech != null) return null
         val streams = speechStreams?.takeIf { gateway != noSpeechStream } ?: return null
         return streams.open(gateway, profile).also { if (it == null) noSpeechStream = gateway }
     }
@@ -902,6 +906,21 @@ class VoiceController(
         keptAs: String? = null,
         onError: (String) -> Unit,
     ) = coroutineScope {
+        val local = callSpeech?.takeIf { keptAs == null }
+        if (local != null) {
+            try {
+                for (chunk in speechChunks(text)) {
+                    val clip = local.synthesize(chunk)
+                    playing.value = true
+                    try { player.play(clip) } finally { playing.value = false }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                onError("Phonon Zoey is unavailable. No other voice was used.")
+            }
+            return@coroutineScope
+        }
         val clips = Channel<SpokenAudio>(capacity = 1)
         launch {
             for (chunk in speechChunks(text)) {

@@ -1,5 +1,6 @@
 package dev.hermeskotlin.ui.calls
 
+import dev.hermeskotlin.core.voice.CallSpeech
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.hermeskotlin.core.chat.InputRequest
@@ -66,8 +67,12 @@ class PhoneCallModel(
     keepAlive: VoiceKeepAlive,
     liveCalls: LiveCalls,
     deviceLock: DeviceLock,
+    callSpeech: CallSpeech? = null,
 ) : ViewModel() {
-    val voice = VoiceController(audio, recorder, player, viewModelScope, appScope, keepAlive, liveCalls = liveCalls, deviceLock = deviceLock)
+    val voice = VoiceController(
+        audio, recorder, player, viewModelScope, appScope, keepAlive,
+        liveCalls = liveCalls, callSpeech = callSpeech, deviceLock = deviceLock,
+    )
 
     private val _state = MutableStateFlow<PhoneCallState?>(null)
     val state: StateFlow<PhoneCallState?> = _state.asStateFlow()

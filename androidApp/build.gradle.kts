@@ -17,6 +17,7 @@ android {
     defaultConfig {
         // The installed identity; the Kotlin packages keep their original dev.hermeskotlin name.
         applicationId = "dev.herald.android"
+        if (releasesRepo.isEmpty()) ndk { abiFilters += "arm64-v8a" }
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         // 1.2.3 → 10203: each release installs over the last, as long as the tags only go up.
@@ -52,7 +53,7 @@ android {
         abi {
             isEnable = releasesRepo.isNotEmpty()
             reset()
-            include("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+            include("arm64-v8a")
             isUniversalApk = true
         }
     }
@@ -117,3 +118,19 @@ dependencies {
     implementation(libs.kotlinx.coroutines.play.services)
     debugImplementation(libs.compose.ui.tooling)
 }
+
+// The fork ships Zoey in the APK. A missing pack must fail the build, never select another voice.
+val verifyPhononPack = tasks.register("verifyPhononPack") {
+    val pack = layout.projectDirectory.dir("src/main/assets/phonon")
+    val runtime = layout.projectDirectory.file("src/main/jniLibs/arm64-v8a/libptts_ffi.so")
+    inputs.dir(pack)
+    inputs.file(runtime)
+    doLast {
+        val required = listOf("model.q8.gguf", "config.json", "tokenizer.json",
+            "voices/NbpkqMVS3CJeq2j8.safetensors", "LICENSE-APACHE", "LICENSE-MIT", "ATTRIBUTION.txt")
+        check(runtime.asFile.isFile && required.all { pack.file(it).asFile.isFile }) {
+            "Phonon Zoey assets are missing. Run scripts/voice/build_phonon_android.sh."
+        }
+    }
+}
+tasks.named("preBuild").configure { dependsOn(verifyPhononPack) }

@@ -1,5 +1,6 @@
 package dev.hermeskotlin.ui.voice
 
+import dev.hermeskotlin.core.voice.CallSpeech
 import dev.hermeskotlin.core.auth.AuthApi
 import dev.hermeskotlin.core.auth.PersistentCookiesStorage
 import dev.hermeskotlin.core.chat.ChatSession
@@ -107,6 +108,75 @@ class VoiceControllerTest {
             PersistentCookiesStorage(InMemoryKeyValueStore()),
         ),
     )
+
+    /** Phone-call openers must use Zoey even if the gateway advertises another call engine. */
+    @Test
+    fun phoneCallUsesLocalVoiceWithoutServerSpeechOrLease() = runTest {
+        val requests = Requests()
+        val said = mutableListOf<String>()
+        val played = CompletableDeferred<Unit>()
+        val local = CallSpeech {
+            said += it
+            SpokenAudio(byteArrayOf(1), "audio/wav")
+        }
+        val voice = localCall(requests, local, object : SpeechPlayer {
+            override suspend fun play(audio: SpokenAudio) { played.complete(Unit) }
+        })
+        voice.startChat(emptySession(), gateway, "default", opener = dev.hermeskotlin.core.phone.CallReason("Hello."))
+        played.await()
+        voice.stopChat()
+        assertEquals(listOf("Hi, it's Hermes. Hello."), said)
+        assertTrue(requests.none { it.url.encodedPath in listOf(
+            "/api/audio/speak", "/api/audio/speak-stream", "/api/audio/tts-lease",
+            "/api/audio/voice-live/status", "/api/audio/voice-live/session",
+        ) })
+    }
+
+    @Test
+    fun localVoiceFailureIsVisibleAndNeverFallsBackToServer() = runTest {
+        val requests = Requests()
+        val voice = localCall(requests, CallSpeech { error("missing pack") }, FakePlayer())
+        voice.startChat(emptySession(), gateway, null, opener = dev.hermeskotlin.core.phone.CallReason("Hello."))
+        val failed = voice.chat.first { it.error != null }
+        assertEquals("Phonon Zoey is unavailable. No other voice was used.", failed.error)
+        voice.stopChat()
+        assertTrue(requests.none { it.url.encodedPath.startsWith("/api/audio/") })
+    }
+
+    @Test
+    fun endingCallCancelsLocalSynthesisBeforePlayback() = runTest {
+        val requests = Requests()
+        val started = CompletableDeferred<Unit>()
+        val cancelled = CompletableDeferred<Unit>()
+        var played = false
+        val voice = localCall(requests, CallSpeech {
+            started.complete(Unit)
+            try { awaitCancellation() } finally { cancelled.complete(Unit) }
+        }, object : SpeechPlayer {
+            override suspend fun play(audio: SpokenAudio) { played = true }
+        })
+        voice.startChat(emptySession(), gateway, null, opener = dev.hermeskotlin.core.phone.CallReason("Hello."))
+        started.await()
+        voice.stopChat()
+        cancelled.await()
+        assertTrue(!played)
+        assertTrue(requests.none { it.url.encodedPath.startsWith("/api/audio/") })
+    }
+
+    private fun TestScope.localCall(requests: Requests, local: CallSpeech, player: SpeechPlayer) =
+        VoiceController(audio("unused", requests), object : VoiceRecorder {
+            override suspend fun record(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit): Recording = awaitCancellation()
+            override fun finish() = Unit
+        }, player, backgroundScope, backgroundScope, callSpeech = local,
+            speechStreams = dev.hermeskotlin.core.voice.SpeechStreams { _, _ -> error("Local calls must not open server speech") },
+            liveCalls = dev.hermeskotlin.core.voice.LiveCalls { error("Local calls must not create WebRTC") })
+
+    private fun TestScope.emptySession(): ChatSession {
+        val cookies = PersistentCookiesStorage(InMemoryKeyValueStore())
+        val http = createHttpClient(MockEngine { error("no REST in this test") }, cookies)
+        val connection = GatewayConnection(AuthApi(http, cookies), { _, _ -> error("not connecting") }, backgroundScope)
+        return ChatSession(gateway, null, null, connection, SessionsApi(http), backgroundScope)
+    }
 
     @Test
     fun dictationPutsTheTranscriptInTheComposer() = runTest {

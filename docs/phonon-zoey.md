@@ -1,0 +1,48 @@
+# Phone-call speech
+
+This fork uses on-phone Phonon 31M English q8 with Zoey
+(`NbpkqMVS3CJeq2j8`) for outgoing voice chats and answered phone calls.
+The model, tokenizer, configuration, and voice conditioning match Conduit
+commit `8bfe3fb95729e18985ebefdbf9ce7245f6e989b3`. The wrapper comes directly from the dual-licensed Phonon project;
+Herald provides its own integration and asset preparation code. Runtime source is
+`gradium-ai/xn-ptts@49b9033e44ab0fbb935973eca3213757644d1bbb`.
+
+Call speech bypasses server synthesis, server speech streaming, TTS leases,
+and GPT-Live/WebRTC. Missing or invalid assets show an error; calls do not
+switch to Android system TTS or another voice. Speech is synthesized in sentence
+chunks on an IO dispatcher and played through Herald's existing cancellable
+player. A model is reused for the process lifetime. Ending a call cancels synthesis
+at the next native audio callback and stops playback.
+
+Transcription and agent replies still use the Hermes gateway. This is local
+speech output, not an entirely offline assistant. Message Read aloud and watch
+calls retain their existing behavior.
+
+## Build
+
+The phone APK now targets ARM64 only. Model assets and native binaries are
+ignored build outputs, never Git blobs. Prepare them before building:
+
+```sh
+cargo install --locked cargo-ndk --version 4.1.2
+export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
+bash scripts/voice/build_phonon_android.sh
+./gradlew :shared:ui:testAndroidHostTest :androidApp:assembleDebug
+```
+
+The build script checks out the pinned native source and uses its Cargo lockfile.
+The asset preparation script downloads pinned Hugging Face revisions, verifies
+sizes and SHA-256 hashes, and includes license and attribution files. The APK build
+requires the pack; the Android installer rechecks model/voice hashes before use.
+JNA 5.17.0 uses its Apache-2.0 license option. The model and Zoey conditioning use
+Apache-2.0; the native runtime uses MIT OR Apache-2.0.
+
+## Verification limits
+
+Host tests cover local call routing, synthesis failure without server fallback,
+and cancellation. A successful APK build alone does not verify native speech,
+audio routing, interruption, or background calls on a physical phone.
+
+The native Kotlin wrapper uses the upstream MIT OR Apache-2.0 license.
+Copies are in `third-party/phonon-LICENSE-MIT` and
+`third-party/phonon-LICENSE-APACHE`; model attribution is packaged in the APK.

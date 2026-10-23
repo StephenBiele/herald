@@ -32,6 +32,15 @@ jobs:
         with:
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
+      - name: Prepare pinned Phonon runtime and Zoey pack
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
+          sdkmanager "ndk;29.0.14206865"
+          rustup default stable
+          cargo install --locked cargo-ndk --version 4.1.2
+          python3 -m unittest discover -s scripts/voice -p 'test_*.py'
+          bash scripts/voice/build_phonon_android.sh
+
       # Lint fails on any issue that isn't in androidApp/lint-baseline.xml. --continue reports the tests and
       # lint together instead of stopping at the first failure.
       - name: Test, build and lint

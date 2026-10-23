@@ -35,6 +35,7 @@ kotlin {
             implementation(libs.koin.android)
             implementation(libs.androidx.core.ktx)
             implementation(libs.webrtc.android)
+            implementation("net.java.dev.jna:jna:5.17.0@aar")
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

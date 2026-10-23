@@ -24,3 +24,7 @@
 # Its JNI glue too: JNI_OnLoad finds these by name, and renamed they abort the app as a call starts.
 -keep class org.jni_zero.** { *; }
 -dontwarn org.jni_zero.**
+
+# JNA resolves Phonon's methods, callback and structure fields by name.
+-keep class dev.hermeskotlin.core.voice.phonon.PhononTTS$* { *; }
+-keep class com.sun.jna.** { *; }
