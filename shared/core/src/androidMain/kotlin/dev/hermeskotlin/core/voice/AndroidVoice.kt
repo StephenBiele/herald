@@ -35,7 +35,10 @@ import kotlin.math.sqrt
  * Records 16 kHz mono PCM with [AudioRecord] and hands it over as WAV, which every speech-to-text
  * provider takes. The level is Desktop's: RMS of the waveform, scaled so 1.0 is loud speech.
  */
-class AndroidVoiceRecorder : VoiceRecorder {
+class AndroidVoiceRecorder(
+    /** Receives the same PCM frames as the recording, at microphone speed. */
+    private val onPcm: ((ByteArray) -> Unit)? = null,
+) : VoiceRecorder {
 
     @Volatile private var finishRequested = false
 
@@ -77,6 +80,7 @@ class AndroidVoiceRecorder : VoiceRecorder {
                     sum += frame[i].toDouble() * frame[i]
                 }
                 pcm.write(bytes.array(), 0, read * 2)
+                onPcm?.invoke(bytes.array().copyOf(read * 2))
                 elapsed += read * 1000L / SAMPLE_RATE
                 // Desktop measures 8-bit samples (±128) against 42; 16-bit samples are 256 times larger.
                 val level = min(1.0, sqrt(sum / read) / 256.0 / 42.0).toFloat()
@@ -160,6 +164,7 @@ class AndroidVoiceRecorder : VoiceRecorder {
                     val level = min(1.0, sqrt(sum / read) / 256.0 / 42.0).toFloat()
                     if (tripped) {
                         pcm.write(bytes.array())
+                        onPcm?.invoke(bytes.array())
                         onLevel(level)
                     } else {
                         preRoll.addLast(bytes.array())
@@ -170,7 +175,7 @@ class AndroidVoiceRecorder : VoiceRecorder {
                             tripped = true
                             // Send now counts from here: one asked before anyone cut in isn't about what they say.
                             finishRequested = false
-                            preRoll.forEach(pcm::write)
+                            preRoll.forEach { pcm.write(it); onPcm?.invoke(it) }
                             preRoll.clear()
                             onTrip()
                         }

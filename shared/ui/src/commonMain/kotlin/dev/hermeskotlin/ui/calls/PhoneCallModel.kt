@@ -1,5 +1,6 @@
 package dev.hermeskotlin.ui.calls
 
+import dev.hermeskotlin.core.voice.CallRecognition
 import dev.hermeskotlin.core.voice.CallSpeech
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -68,10 +69,11 @@ class PhoneCallModel(
     liveCalls: LiveCalls,
     deviceLock: DeviceLock,
     callSpeech: CallSpeech? = null,
+    callRecognition: CallRecognition? = null,
 ) : ViewModel() {
     val voice = VoiceController(
         audio, recorder, player, viewModelScope, appScope, keepAlive,
-        liveCalls = liveCalls, callSpeech = callSpeech, deviceLock = deviceLock,
+        liveCalls = liveCalls, callSpeech = callSpeech, callRecognition = callRecognition, deviceLock = deviceLock,
     )
 
     private val _state = MutableStateFlow<PhoneCallState?>(null)

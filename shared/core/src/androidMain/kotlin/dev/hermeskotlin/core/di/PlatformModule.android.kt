@@ -1,6 +1,8 @@
 package dev.hermeskotlin.core.di
 
 import dev.hermeskotlin.core.voice.phonon.PhononCallSpeech
+import dev.hermeskotlin.core.voice.CallRecognition
+import dev.hermeskotlin.core.voice.AndroidCallRecognition
 import dev.hermeskotlin.core.voice.CallSpeech
 import dev.hermeskotlin.core.auth.AndroidLoopbackReceiver
 import dev.hermeskotlin.core.auth.LoopbackReceiver
@@ -34,6 +36,7 @@ actual val platformModule: Module = module {
     single<LoopbackReceiver> { AndroidLoopbackReceiver("${androidContext().packageName}:/signed-in") }
     single { WallpaperStore(AndroidBlobFile(File(androidContext().filesDir, "wallpaper.jpg")), get()) }
     factory<VoiceRecorder> { AndroidVoiceRecorder() }
+    factory<CallRecognition> { AndroidCallRecognition(androidContext()) }
     single<CallSpeech> { PhononCallSpeech(androidContext()) }
     single<SpeechPlayer> { AndroidSpeechPlayer(androidContext()) }
     single<ReadAloudVoices> { FileReadAloudVoices(File(androidContext().cacheDir, "read-aloud")) }

@@ -77,6 +77,8 @@ android {
         disable += setOf(
             // Only fires on the untracked local.properties that Android Studio writes on Windows.
             "PropertyEscape",
+            // This Phonon build targets ARM64 phones; it does not distribute ChromeOS binaries.
+            "ChromeOsAbiSupport",
             // These change when a library or Android version comes out, not when the code changes.
             "GradleDependency", "NewerVersionAvailable", "AndroidGradlePluginVersion", "OldTargetApi",
         )

@@ -1,5 +1,6 @@
 package dev.hermeskotlin.ui.chat
 
+import dev.hermeskotlin.core.voice.CallRecognition
 import dev.hermeskotlin.core.voice.CallSpeech
 import dev.hermeskotlin.core.voice.ReadAloudVoices
 import dev.hermeskotlin.core.voice.InMemoryReadAloudVoices
@@ -211,6 +212,7 @@ class ChatViewModel(
     /** The Next Prompt plugin's suggestions; none without it. */
     nextPromptApi: NextPromptApi? = null,
     callSpeech: CallSpeech? = null,
+    callRecognition: CallRecognition? = null,
 ) : ViewModel(), ChatActions {
 
     /** Dictation, voice chat and Read aloud for the open chat. */
@@ -219,7 +221,7 @@ class ChatViewModel(
         speechStreams = speechStreams,
         deviceLock = deviceLock,
         liveCalls = liveCalls,
-        callSpeech = callSpeech,
+        callSpeech = callSpeech, callRecognition = callRecognition,
         readAloudVoices = readAloudVoices ?: InMemoryReadAloudVoices(),
     )
 

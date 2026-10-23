@@ -1,5 +1,8 @@
 package dev.hermeskotlin.ui.voice
 
+import dev.hermeskotlin.core.voice.CallRecognition
+import dev.hermeskotlin.core.voice.CallSpeech
+import dev.hermeskotlin.core.voice.DeviceTranscript
 import dev.hermeskotlin.core.auth.AuthApi
 import dev.hermeskotlin.core.auth.PersistentCookiesStorage
 import dev.hermeskotlin.core.chat.ChatMessage
@@ -155,7 +158,7 @@ class StreamedSpeechTest {
     }
 
     /** [canHold]: the voice holds when someone seems to cut in; [holds] is each hold and letting go. */
-    private class Player(val fails: Boolean = false, val canHold: Boolean = false) : SpeechPlayer {
+    private class Player(val fails: Boolean = false, val canHold: Boolean = false, val blockPlayback: Boolean = false) : SpeechPlayer {
         val holds = mutableListOf<Boolean>()
         override fun hold(on: Boolean): Boolean {
             holds += on
@@ -163,12 +166,15 @@ class StreamedSpeechTest {
         }
 
         val clips = mutableListOf<SpokenAudio>()
+        val sounding = CompletableDeferred<Unit>()
         val streamed = MutableStateFlow<List<ByteArray>>(emptyList())
         var rate = 0
         var channels = 0
         var pcm: ReceiveChannel<ByteArray>? = null
         override suspend fun play(audio: SpokenAudio) {
             clips += audio
+            sounding.complete(Unit)
+            if (blockPlayback) awaitCancellation()
         }
 
         override suspend fun playPcm(sampleRate: Int, channels: Int, chunks: ReceiveChannel<ByteArray>, onSound: (Boolean) -> Unit) {
@@ -221,12 +227,16 @@ class StreamedSpeechTest {
         transcripts: List<String> = listOf("How was your day?"),
         /** The profile's config, as `GET /api/config` gives it. */
         config: String = """{"ok":true}""",
+        callRecognition: CallRecognition? = null,
+        callSpeech: CallSpeech? = null,
+        audioRequests: MutableStateFlow<List<String>> = MutableStateFlow(emptyList()),
         streams: () -> SpeechStream?,
     ): Setup {
         val spoken = mutableListOf<String>()
         var transcribed = 0
         val client = createHttpClient(
             MockEngine { request ->
+                if (request.url.encodedPath.startsWith("/api/audio/")) audioRequests.update { it + request.url.encodedPath }
                 when (request.url.encodedPath) {
                     "/api/auth/ws-ticket" -> respond("""{"ticket":"T","ttl_seconds":30}""", HttpStatusCode.OK, json)
                     "/api/audio/transcribe" -> {
@@ -251,10 +261,71 @@ class StreamedSpeechTest {
         connection.state.first { it is ConnectionState.Connected }
         val session = ChatSession(gateway, null, null, connection, SessionsApi(client), backgroundScope)
         session.start()
-        val voice = VoiceController(AudioApi(client), recorder, player, backgroundScope, backgroundScope, speechStreams = { _, _ -> streams() })
+        val voice = VoiceController(AudioApi(client), recorder, player, backgroundScope, backgroundScope, speechStreams = { _, _ -> streams() }, callRecognition = callRecognition, callSpeech = callSpeech)
         voice.startChat(session, gateway, "rin")
         socket.submits.first { it.isNotEmpty() }
         return Setup(socket, voice, player, spoken)
+    }
+
+    private fun localRecognition(recorder: CutsIn, interruption: String): CallRecognition = object : CallRecognition {
+        override fun finish() = recorder.finish()
+        override suspend fun record(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit): Recording {
+            val audio = recorder.record(activity, onLevel, onSpeech)
+            return Recording(audio.bytes, audio.mimeType, audio.heardSpeech, DeviceTranscript.Text("How was your day?"))
+        }
+        override suspend fun listenOver(bargeIn: BargeIn, playing: () -> Boolean, onTrip: () -> Unit, onLevel: (Float) -> Unit, onListening: () -> Unit): Recording? {
+            val audio = recorder.listenOver(bargeIn, playing, onTrip, onLevel, onListening) ?: return null
+            return Recording(audio.bytes, audio.mimeType, audio.heardSpeech, DeviceTranscript.Text(interruption))
+        }
+    }
+
+    @Test
+    fun onDeviceCallSubmitsTextAndUsesLocalVoice() = runTest {
+        val recorder = CutsIn()
+        val requests = MutableStateFlow<List<String>>(emptyList())
+        val said = mutableListOf<String>()
+        val setup = chat(callRecognition = localRecognition(recorder, "unused"), audioRequests = requests,
+            callSpeech = CallSpeech { said += it; SpokenAudio(byteArrayOf(1), "audio/wav") }) { error("No server speech socket") }
+        assertEquals("How was your day?", setup.socket.submits.value.single()["params"]!!.jsonObject["text"]!!.jsonPrimitive.content)
+        setup.socket.event("message.start")
+        setup.socket.event("message.complete", """{"text":"It was good.","status":"complete"}""")
+        setup.voice.chat.first { it.phase == VoicePhase.Listening }
+        assertEquals(listOf("It was good."), said)
+        assertTrue(requests.value.isEmpty())
+        setup.voice.stopChat()
+    }
+
+    @Test
+    fun onDeviceInterruptionSubmitsTextWithoutAudioUpload() = runTest {
+        val recorder = CutsIn()
+        val requests = MutableStateFlow<List<String>>(emptyList())
+        val setup = chat(callRecognition = localRecognition(recorder, "What about tomorrow?"), audioRequests = requests,
+            callSpeech = CallSpeech { SpokenAudio(byteArrayOf(1), "audio/wav") }) { error("No server speech socket") }
+        setup.socket.event("message.start")
+        recorder.listening.first { it >= 1 }
+        recorder.cut.complete(Unit)
+        setup.socket.calls.first { "session.interrupt" in it }
+        setup.socket.event("message.complete", """{"text":"","status":"interrupted"}""")
+        setup.socket.submits.first { it.size == 2 }
+        assertEquals("What about tomorrow?", setup.socket.submits.value[1]["params"]!!.jsonObject["text"]!!.jsonPrimitive.content)
+        assertTrue(requests.value.isEmpty())
+        setup.voice.stopChat()
+    }
+
+    @Test
+    fun briefOnDeviceStopOverHeldVoiceNeverUploads() = runTest {
+        val recorder = CutsIn(goneOn = false)
+        val requests = MutableStateFlow<List<String>>(emptyList())
+        val player = Player(canHold = true, blockPlayback = true)
+        val setup = chat(player = player, callRecognition = localRecognition(recorder, "Stop."), audioRequests = requests,
+            callSpeech = CallSpeech { SpokenAudio(byteArrayOf(1), "audio/wav") }) { error("No server speech socket") }
+        setup.socket.event("message.start")
+        setup.socket.event("message.complete", """{"text":"It was good.","status":"complete"}""")
+        player.sounding.await()
+        recorder.listening.first { it >= 1 }
+        recorder.cut.complete(Unit)
+        setup.voice.chat.first { it.phase == VoicePhase.Off }
+        assertTrue(requests.value.isEmpty())
     }
 
     @Test

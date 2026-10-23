@@ -14,9 +14,23 @@ chunks on an IO dispatcher and played through Herald's existing cancellable
 player. A model is reused for the process lifetime. Ending a call cancels synthesis
 at the next native audio callback and stops playback.
 
-Transcription and agent replies still use the Hermes gateway. This is local
-speech output, not an entirely offline assistant. Message Read aloud and watch
-calls retain their existing behavior.
+Phone calls also transcribe on the device. Like Conduit, they prefer Android's
+on-device recognizer and use ML Kit Advanced, then Basic, when the platform input
+path is unavailable. Herald uses its existing 16 kHz mono PCM microphone frames
+for recognition, including interruption pre-roll. It streams headerless PCM at
+real-time speed, as required by [ML Kit](https://developers.google.com/ml-kit/genai/speech-recognition/android),
+and uses Android's [external audio source](https://developer.android.com/reference/android/speech/RecognizerIntent#EXTRA_AUDIO_SOURCE)
+with segmented recognition so closing the pipe ends the utterance.
+
+The platform path requires Android 13 or later; ML Kit requires a supported
+Android 12 or later device and may download a speech model before first use.
+The recognizer uses the phone's default locale. Unsupported devices, missing
+language packs, and recognition failures show an error. Calls never select a
+network recognition service or upload audio to Hermes as a fallback.
+
+Only recognized text goes to Hermes for agent replies. Phonon and Zoey remain
+on the phone. Message dictation, Read aloud, and watch calls retain their existing
+behavior. This change does not alter the Hermes server's Parakeet configuration.
 
 ## Build
 
@@ -39,8 +53,9 @@ Apache-2.0; the native runtime uses MIT OR Apache-2.0.
 
 ## Verification limits
 
-Host tests cover local call routing, synthesis failure without server fallback,
-and cancellation. A successful APK build alone does not verify native speech,
+Host tests cover local call routing, transcription failure without upload,
+interruption and stop-command transcripts, Send now, synthesis failure without
+server fallback, and cancellation. A successful APK build alone does not verify native speech,
 audio routing, interruption, or background calls on a physical phone.
 
 The native Kotlin wrapper uses the upstream MIT OR Apache-2.0 license.

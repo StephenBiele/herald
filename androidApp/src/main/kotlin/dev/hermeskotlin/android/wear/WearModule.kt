@@ -17,5 +17,5 @@ val wearModule = module {
     single { WatchRinger(androidContext(), get(), get(), get(), get(), get()) }
     single { WatchAccentSync(androidContext(), get(), get()) }
     // A call for an answer picked up on the phone holds its chat as a call from the watch does.
-    viewModel { PhoneCallModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), callSpeech = get()) }
+    viewModel { PhoneCallModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), callSpeech = get(), callRecognition = get()) }
 }

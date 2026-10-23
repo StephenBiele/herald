@@ -1,5 +1,6 @@
 package dev.hermeskotlin.ui.voice
 
+import dev.hermeskotlin.core.voice.CallRecognition
 import dev.hermeskotlin.core.voice.CallSpeech
 import dev.hermeskotlin.core.chat.ChatMessage
 import dev.hermeskotlin.core.chat.ChatSession
@@ -18,6 +19,7 @@ import dev.hermeskotlin.core.voice.AudioApi
 import dev.hermeskotlin.core.voice.BargeIn
 import dev.hermeskotlin.core.voice.BargeInSettings
 import dev.hermeskotlin.core.voice.DeviceDictation
+import dev.hermeskotlin.core.voice.DeviceTranscript
 import dev.hermeskotlin.core.voice.DeviceDictationUnavailable
 import dev.hermeskotlin.core.voice.LiveCalls
 import dev.hermeskotlin.core.voice.ReadAloudVoices
@@ -112,8 +114,7 @@ data class ReadAloudState(
 )
 
 /**
- * Voice on this device, Desktop's way: the phone records, the gateway transcribes with the profile's
- * speech-to-text and voices replies with its text-to-speech, and the phone plays them.
+ * Voice calls use [callRecognition] and [callSpeech] on Android. Other clients retain gateway speech.
  *
  * Dictation drops a transcript into the composer. A voice chat loops: listen until you stop talking,
  * send what you said, wait for the reply, read it aloud, listen again; saying "stop" ends it. Read aloud
@@ -141,6 +142,8 @@ class VoiceController(
     private val deviceLock: DeviceLock = DeviceLock.None,
     /** On-phone call voice. When present, call output never uses gateway synthesis or GPT-Live. */
     private val callSpeech: CallSpeech? = null,
+    /** The phone microphone and transcript; recognition errors never fall back to the gateway. */
+    private val callRecognition: CallRecognition? = null,
     private val liveCalls: LiveCalls? = null,
 ) {
     private val _chat = MutableStateFlow(VoiceChatState())
@@ -213,7 +216,7 @@ class VoiceController(
         ) == true
         val job = scope.launch {
             try {
-                if (callSpeech == null && startLive(session, gateway, profile, opener)) return@launch
+                if (callRecognition == null && callSpeech == null && startLive(session, gateway, profile, opener)) return@launch
                 converseChained(session, gateway, profile, pauseMs, opener)
             } finally {
                 // Also a chat ended before it found its mode (End during the status check). An ending the person
@@ -340,7 +343,7 @@ class VoiceController(
     fun sendNow() {
         // As the button shows: once it has heard you, so the recording is under way and has something to send.
         if (!canSendNow(_chat.value) || chatJob?.isActive != true) return
-        recorder.finish()
+        (callRecognition ?: recorder).finish()
     }
 
     fun dismissChatError() = _chat.update { it.copy(error = null) }
@@ -466,7 +469,7 @@ class VoiceController(
         if (!settings.enabled || cantListenOver) return null
         val detector = BargeIn(settings, activity.silenceMs, roomFloor)
         val heard = try {
-            recorder.listenOver(
+            (callRecognition ?: recorder).listenOver(
                 detector,
                 playing = { playing.value },
                 // Offered once the microphone listens, not before.
@@ -510,7 +513,7 @@ class VoiceController(
                 // written down meanwhile, since a quick "stop" can be over before the voice held.
                 val chat = chatJob
                 if (heard != null) scope.launch {
-                    val words = (audio.transcribe(gateway, heard.bytes, heard.mimeType, profile) as? ApiResult.Success)?.value.orEmpty()
+                    val words = transcribeCall(gateway, profile, heard).orEmpty()
                     if (isVoiceStopCommand(words) && chat != null && chatJob === chat) stopChat()
                 }
                 _chat.update { it.copy(phase = phase, level = 0f, hearing = false) }
@@ -518,7 +521,7 @@ class VoiceController(
             }
             val transcript = heard?.let {
                 _chat.update { it.copy(phase = VoicePhase.Transcribing, level = 0f, hearing = false) }
-                (audio.transcribe(gateway, it.bytes, it.mimeType, profile) as? ApiResult.Success)?.value?.trim()
+                transcribeCall(gateway, profile, it)?.trim()
             }.orEmpty()
             // Its own words heard back, compared with every stretch of the reply: off the main thread.
             suspend fun echo(words: String) = withContext(Dispatchers.Default) { isTtsEcho(words, overVoice) }
@@ -635,7 +638,7 @@ class VoiceController(
     private suspend fun hear(gateway: GatewayUrl, profile: String?, activity: VoiceActivity): Heard {
         _chat.update { it.copy(phase = VoicePhase.Listening, level = 0f, hearing = false) }
         val recording = try {
-            recorder.record(
+            (callRecognition ?: recorder).record(
                 activity,
                 onLevel = { level -> _chat.update { it.copy(level = level) } },
                 onSpeech = { _chat.update { it.copy(hearing = true) } },
@@ -648,16 +651,34 @@ class VoiceController(
         }
         if (!recording.heardSpeech) return Heard.Silence
         _chat.update { it.copy(phase = VoicePhase.Transcribing, level = 0f, hearing = false) }
-        val transcript = when (val result = audio.transcribe(gateway, recording.bytes, recording.mimeType, profile)) {
-            is ApiResult.Success -> result.value
-            else -> {
-                _chat.update { it.copy(error = result.errorMessage ?: "Couldn't transcribe that.") }
-                return Heard.Unclear
-            }
-        }
+        val transcript = transcribeCall(gateway, profile, recording) ?: return Heard.Unclear
         // From here, an error on show is this turn's own.
         _chat.update { it.copy(error = null) }
         return if (transcript.isBlank()) Heard.Silence else Heard.Words(transcript)
+    }
+
+    /** A local call never sends audio to Hermes, even when the recognizer fails. */
+    private suspend fun transcribeCall(gateway: GatewayUrl, profile: String?, recording: Recording): String? {
+        if (callRecognition != null) {
+            return when (val result = recording.transcript) {
+                is DeviceTranscript.Text -> result.text
+                is DeviceTranscript.Failure -> {
+                    _chat.update { it.copy(error = result.message) }
+                    null
+                }
+                null -> {
+                    _chat.update { it.copy(error = "On-device transcription returned no result. No audio was uploaded.") }
+                    null
+                }
+            }
+        }
+        return when (val result = audio.transcribe(gateway, recording.bytes, recording.mimeType, profile)) {
+            is ApiResult.Success -> result.value
+            else -> {
+                _chat.update { it.copy(error = result.errorMessage ?: "Couldn't transcribe that.") }
+                null
+            }
+        }
     }
 
     /** The question or approval Hermes waits on in [chat] that can be answered aloud. */

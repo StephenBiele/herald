@@ -55,6 +55,7 @@ val uiModule = module {
             deviceLock = getOrNull() ?: DeviceLock.None,
             nextPromptApi = get(),
             callSpeech = get(),
+            callRecognition = get(),
         )
     }
     viewModelOf(::SettingsViewModel)

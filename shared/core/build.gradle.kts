@@ -36,6 +36,7 @@ kotlin {
             implementation(libs.androidx.core.ktx)
             implementation(libs.webrtc.android)
             implementation("net.java.dev.jna:jna:5.17.0@aar")
+            implementation("com.google.mlkit:genai-speech-recognition:1.0.0-alpha1")
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

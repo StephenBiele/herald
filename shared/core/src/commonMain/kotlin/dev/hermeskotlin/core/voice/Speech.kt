@@ -94,7 +94,21 @@ class EndOfSpeech(private val activity: VoiceActivity) {
 }
 
 /** One finished recording. [heardSpeech] is false when it never rose above the speech level. */
-class Recording(val bytes: ByteArray, val mimeType: String, val heardSpeech: Boolean)
+class Recording(
+    val bytes: ByteArray,
+    val mimeType: String,
+    val heardSpeech: Boolean,
+    /** Present only when the call microphone also transcribes on the phone. */
+    val transcript: DeviceTranscript? = null,
+)
+
+sealed interface DeviceTranscript {
+    data class Text(val text: String) : DeviceTranscript
+    data class Failure(val message: String) : DeviceTranscript
+}
+
+/** A call microphone that also supplies a device transcript, including for interruptions. */
+interface CallRecognition : VoiceRecorder
 
 /** The device microphone. One recording at a time. */
 interface VoiceRecorder {

@@ -1,5 +1,7 @@
 package dev.hermeskotlin.ui.voice
 
+import dev.hermeskotlin.core.voice.CallRecognition
+import dev.hermeskotlin.core.voice.DeviceTranscript
 import dev.hermeskotlin.core.voice.CallSpeech
 import dev.hermeskotlin.core.auth.AuthApi
 import dev.hermeskotlin.core.auth.PersistentCookiesStorage
@@ -160,6 +162,79 @@ class VoiceControllerTest {
         voice.stopChat()
         cancelled.await()
         assertTrue(!played)
+        assertTrue(requests.none { it.url.encodedPath.startsWith("/api/audio/") })
+    }
+
+    @Test
+    fun localCallStopCommandNeverUploadsRecording() = runTest {
+        val requests = Requests()
+        val local = object : CallRecognition {
+            override suspend fun record(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit): Recording {
+                onSpeech()
+                return Recording(byteArrayOf(1), "audio/wav", true, DeviceTranscript.Text("Stop."))
+            }
+            override fun finish() = Unit
+        }
+        val voice = VoiceController(audio("should not be used", requests), FakeRecorder(), FakePlayer(), backgroundScope, backgroundScope,
+            callRecognition = local, callSpeech = CallSpeech { error("Stop must not be spoken back") })
+        voice.startChat(emptySession(), gateway, "default")
+        voice.chat.first { it.phase == VoicePhase.Off }
+        assertTrue(requests.none { it.url.encodedPath.startsWith("/api/audio/") })
+    }
+
+    @Test
+    fun missingLocalTranscriptNeverFallsBackToGateway() = runTest {
+        val requests = Requests()
+        val local = object : CallRecognition {
+            override suspend fun record(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit) =
+                Recording(byteArrayOf(1), "audio/wav", true)
+            override fun finish() = Unit
+        }
+        val voice = VoiceController(audio("unused", requests), FakeRecorder(), FakePlayer(), backgroundScope, backgroundScope,
+            callRecognition = local, callSpeech = CallSpeech { error("unused") })
+        voice.startChat(emptySession(), gateway, null)
+        val ended = voice.chat.first { it.phase == VoicePhase.Off }
+        assertEquals("On-device transcription returned no result. No audio was uploaded.", ended.error)
+        assertTrue(requests.none { it.url.encodedPath.startsWith("/api/audio/") })
+    }
+
+    @Test
+    fun localRecognitionFailureStaysVisibleWithoutUpload() = runTest {
+        val requests = Requests()
+        val local = object : CallRecognition {
+            override suspend fun record(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit) =
+                Recording(byteArrayOf(1), "audio/wav", true, DeviceTranscript.Failure("Install the speech language pack."))
+            override fun finish() = Unit
+        }
+        val voice = VoiceController(audio("unused", requests), FakeRecorder(), FakePlayer(), backgroundScope, backgroundScope,
+            callRecognition = local, callSpeech = CallSpeech { error("unused") })
+        voice.startChat(emptySession(), gateway, null)
+        assertEquals("Install the speech language pack.", voice.chat.first { it.phase == VoicePhase.Off }.error)
+        assertTrue(requests.none { it.url.encodedPath.startsWith("/api/audio/") })
+    }
+
+    @Test
+    fun sendNowAndHangupControlTheLocalCallMicrophone() = runTest {
+        val requests = Requests()
+        val listening = CompletableDeferred<Unit>()
+        val finished = CompletableDeferred<Unit>()
+        val cancelled = CompletableDeferred<Unit>()
+        val local = object : CallRecognition {
+            override suspend fun record(activity: VoiceActivity, onLevel: (Float) -> Unit, onSpeech: () -> Unit): Recording {
+                onSpeech()
+                listening.complete(Unit)
+                try { awaitCancellation() } finally { cancelled.complete(Unit) }
+            }
+            override fun finish() { finished.complete(Unit) }
+        }
+        val voice = VoiceController(audio("unused", requests), FakeRecorder(), FakePlayer(), backgroundScope, backgroundScope,
+            callRecognition = local, callSpeech = CallSpeech { error("unused") })
+        voice.startChat(emptySession(), gateway, null)
+        listening.await()
+        voice.sendNow()
+        finished.await()
+        voice.stopChat()
+        cancelled.await()
         assertTrue(requests.none { it.url.encodedPath.startsWith("/api/audio/") })
     }
 
