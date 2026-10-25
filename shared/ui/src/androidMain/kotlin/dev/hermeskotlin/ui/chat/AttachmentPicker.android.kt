@@ -39,6 +39,7 @@ import kotlin.random.Random
 actual fun rememberAttachmentPicker(
     onPicked: (List<OutgoingAttachment>) -> Unit,
     onError: (String) -> Unit,
+    maxBytes: Long,
 ): AttachmentPicker {
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
@@ -50,7 +51,7 @@ actual fun rememberAttachmentPicker(
     fun read(uris: List<Uri>) {
         if (uris.isEmpty()) return
         scope.launch {
-            val (read, error) = readAttachments(context, uris)
+            val (read, error) = readAttachments(context, uris, maxBytes)
             error?.let(failed)
             read.takeIf { it.isNotEmpty() }?.let(picked)
         }
@@ -69,7 +70,7 @@ actual fun rememberAttachmentPicker(
         }
         scope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { readAttachment(context, Uri.fromFile(file), MAX_PICK_BYTES) }.also { file.delete() }
+                runCatching { readAttachment(context, Uri.fromFile(file), MAX_PICK_BYTES, maxBytes) }.also { file.delete() }
             }
             result.onSuccess { picked(listOf(it)) }.onFailure { failed(it.message ?: "Couldn't read the photo.") }
         }
@@ -103,11 +104,15 @@ actual fun rememberAttachmentPicker(
  * scaled down, everything within the per-file and per-pick limits. Returns what could be read and a
  * sentence for the first thing that couldn't.
  */
-suspend fun readAttachments(context: Context, uris: List<Uri>): Pair<List<OutgoingAttachment>, String?> {
+suspend fun readAttachments(
+    context: Context,
+    uris: List<Uri>,
+    maxBytes: Long = OutgoingAttachment.MAX_BYTES.toLong(),
+): Pair<List<OutgoingAttachment>, String?> {
     val results = withContext(Dispatchers.IO) {
         // Everything picked sits in memory until it's sent, so a pick has a budget as a whole too.
         var left = MAX_PICK_BYTES
-        uris.map { uri -> runCatching { readAttachment(context, uri, left).also { left -= it.bytes.size } } }
+        uris.map { uri -> runCatching { readAttachment(context, uri, left, maxBytes).also { left -= it.bytes.size } } }
     }
     val error = results.firstNotNullOfOrNull { result ->
         when (val e = result.exceptionOrNull()) {
@@ -143,7 +148,7 @@ actual fun rememberDecodedImage(bytes: ByteArray, maxEdge: Int): DecodedImage {
  * Reads one picked item: photos are upright, at most [MAX_EDGE] px and JPEG; anything else is sent as is.
  * [budget] is what's left of the pick's [MAX_PICK_BYTES] for what this adds.
  */
-private fun readAttachment(context: Context, uri: Uri, budget: Long): OutgoingAttachment {
+private fun readAttachment(context: Context, uri: Uri, budget: Long, maxBytes: Long): OutgoingAttachment {
     val resolver = context.contentResolver
     val name = resolver.displayName(uri) ?: uri.lastPathSegment?.substringAfterLast('/') ?: "file"
     val mime = resolver.getType(uri) ?: guessMime(name)
@@ -160,10 +165,10 @@ private fun readAttachment(context: Context, uri: Uri, budget: Long): OutgoingAt
         val thumbnail = upright.scaledTo(THUMBNAIL_EDGE).jpeg(THUMBNAIL_QUALITY)
         return OutgoingAttachment(id, name.withExtension("jpg"), "image/jpeg", upload, thumbnail)
     }
-    if (size != null && size > OutgoingAttachment.MAX_BYTES) error("$name is larger than 25 MB.")
+    if (size != null && size > maxBytes) error("$name is larger than ${maxBytes / (1024 * 1024)} MB.")
     if (size != null && size > budget) error("That's more than 50 MB of attachments at once.")
     // The reported size can be missing or wrong, so the read itself stops at the limit.
-    val limit = minOf(OutgoingAttachment.MAX_BYTES.toLong(), budget)
+    val limit = minOf(maxBytes, budget)
     val bytes = resolver.openInputStream(uri)?.use { it.readAtMost(limit) ?: error("$name is too large to attach.") }
         ?: error("Couldn't read $name.")
     val thumbnail = if (mime.startsWith("image/")) decodeUpright(bytes, THUMBNAIL_EDGE)?.jpeg(THUMBNAIL_QUALITY) else null

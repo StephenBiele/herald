@@ -61,6 +61,15 @@ enum class DictationEngine { Device, Gateway }
  */
 enum class RunningSend { Steer, Queue, StopAndSend }
 
+/**
+ * The composer's per-attachment size limit. The gateway refuses an image over 25 MB whatever this says,
+ * and a PDF over 50 MB, so both options stay inside what a send can actually deliver.
+ */
+enum class AttachmentSize(val bytes: Int) {
+    Standard(25 * 1024 * 1024),
+    Large(50 * 1024 * 1024),
+}
+
 /** App-side preferences, kept on the device (not on the gateway). New fields need defaults. */
 @Serializable
 data class AppSettings(
@@ -100,6 +109,8 @@ data class AppSettings(
     val dictationEngine: DictationEngine = DictationEngine.Device,
     /** What tapping Send does while a reply is running; a long press on Send picks another for one message. */
     val runningSend: RunningSend = RunningSend.Steer,
+    /** How big one attachment may be when picking it. */
+    val attachmentSize: AttachmentSize = AttachmentSize.Standard,
     /**
      * What every new chat started here tells the agent first, out of sight (`putStartInstruction`), such as "I'm on
      * my phone: keep replies short". Blank: nothing. Chats already going keep what they started with.

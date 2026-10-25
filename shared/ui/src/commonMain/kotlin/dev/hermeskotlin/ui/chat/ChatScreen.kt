@@ -367,7 +367,11 @@ fun ChatScreen(
             notice = null
         }
     }
-    val attachmentPicker = rememberAttachmentPicker(onPicked = viewModel::addAttachments, onError = viewModel::showAttachmentError)
+    val attachmentPicker = rememberAttachmentPicker(
+        onPicked = viewModel::addAttachments,
+        onError = viewModel::showAttachmentError,
+        maxBytes = LocalAppSettings.current.attachmentSize.bytes.toLong(),
+    )
     val microphone = rememberMicrophonePermission()
     val startVoiceChat = {
         microphone.withMicrophone(onDenied = { notice = "Voice needs the microphone. Allow it in Android's settings." }) {

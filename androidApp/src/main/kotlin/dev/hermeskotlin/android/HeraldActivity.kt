@@ -37,6 +37,7 @@ import dev.hermeskotlin.core.chat.ComposeDraft
 import dev.hermeskotlin.core.chat.SharedContent
 import dev.hermeskotlin.core.connection.ConnectionState
 import dev.hermeskotlin.core.connection.GatewayConnection
+import dev.hermeskotlin.core.settings.AttachmentSize
 import dev.hermeskotlin.core.settings.SettingsStore
 import dev.hermeskotlin.ui.App
 import dev.hermeskotlin.ui.chat.readAttachments
@@ -199,7 +200,8 @@ class HeraldActivity : FragmentActivity() {
         if (shared.isEmpty) return
         // The app's scope, so a rotation mid-read doesn't drop the share.
         appScope.launch {
-            val (files, error) = readAttachments(applicationContext, shared.filesToAttach.map(Uri::parse))
+            val limit = settings.settings.value?.attachmentSize ?: AttachmentSize.Standard
+            val (files, error) = readAttachments(applicationContext, shared.filesToAttach.map(Uri::parse), limit.bytes.toLong())
             val draft = ComposeDraft(text = shared.draftText, attachments = files, notice = error ?: shared.leftOverNotice)
             if (bot != null) links.shareToBot(bot, draft) else links.newChat(draft)
         }

@@ -16,11 +16,13 @@ interface AttachmentPicker {
 /**
  * Pickers that read what the person chose into [OutgoingAttachment]s (photos scaled down for upload,
  * with a thumbnail) and hand them to [onPicked]; [onError] gets a sentence for anything that failed.
+ * [maxBytes] is the per-file limit (`AppSettings.attachmentSize`): photos are shrunk to fit either way.
  */
 @Composable
 expect fun rememberAttachmentPicker(
     onPicked: (List<OutgoingAttachment>) -> Unit,
     onError: (String) -> Unit,
+    maxBytes: Long = OutgoingAttachment.MAX_BYTES.toLong(),
 ): AttachmentPicker
 
 /** Decodes an encoded image, sampled down to about [maxEdge] px on its long side; null when it can't be read. */

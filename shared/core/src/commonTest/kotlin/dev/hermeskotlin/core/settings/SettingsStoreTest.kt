@@ -169,6 +169,20 @@ class SettingsStoreTest {
     }
 
     @Test
+    fun attachmentSizeIsStandardUntilChangedAndRemembered() = runTest {
+        val disk = InMemoryKeyValueStore()
+        val first = SettingsStore(disk, backgroundScope)
+        assertEquals(AttachmentSize.Standard, first.settings.filterNotNull().first().attachmentSize)
+        assertEquals(25 * 1024 * 1024, AttachmentSize.Standard.bytes)
+        assertEquals(50 * 1024 * 1024, AttachmentSize.Large.bytes)
+
+        first.update { it.copy(attachmentSize = AttachmentSize.Large) }
+        advanceUntilIdle()
+
+        assertEquals(AttachmentSize.Large, SettingsStore(disk, backgroundScope).settings.filterNotNull().first().attachmentSize)
+    }
+
+    @Test
     fun unreadableStoredSettingsFallBackToDefaults() = runTest {
         val disk = InMemoryKeyValueStore().apply { put("settings.v1", """{"theme":"Neon"}""") }
         assertEquals(AppSettings(), SettingsStore(disk, backgroundScope).settings.filterNotNull().first())

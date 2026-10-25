@@ -110,6 +110,7 @@ import dev.hermeskotlin.core.phone.enabledPhoneTools
 import dev.hermeskotlin.core.plugins.NextPromptApi
 import dev.hermeskotlin.core.push.PushStatus
 import dev.hermeskotlin.core.settings.AppSettings
+import dev.hermeskotlin.core.settings.AttachmentSize
 import dev.hermeskotlin.core.settings.RunningSend
 import dev.hermeskotlin.core.settings.TextSize
 import dev.hermeskotlin.core.settings.ThemeMode
@@ -435,6 +436,18 @@ internal fun SettingsView(
                             options = RunningSend.entries,
                             selected = settings.runningSend,
                             onSelect = { mode -> onUpdate { it.copy(runningSend = mode) } },
+                            optionLabel = { it.label },
+                        )
+                    }
+                    Divider()
+                    Field(
+                        "Attachment size limit",
+                        detail = "How big one file may be to attach. Photos are always shrunk to fit; the gateway itself refuses an image over 25 MB.",
+                    ) {
+                        SegmentedControl(
+                            options = AttachmentSize.entries,
+                            selected = settings.attachmentSize,
+                            onSelect = { size -> onUpdate { it.copy(attachmentSize = size) } },
                             optionLabel = { it.label },
                         )
                     }
@@ -1029,3 +1042,7 @@ internal fun ActionRow(title: String, icon: ImageVector, onClick: () -> Unit) {
         Text(title, style = Theme[typography][body], color = Theme[colors][text])
     }
 }
+
+/** The two attachment limits, by size. */
+private val AttachmentSize.label: String
+    get() = "${bytes / (1024 * 1024)} MB"

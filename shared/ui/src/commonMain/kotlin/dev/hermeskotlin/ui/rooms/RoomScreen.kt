@@ -79,6 +79,7 @@ import com.composeunstyled.UnstyledTextField
 import com.composeunstyled.theme.Theme
 import androidx.compose.foundation.text.input.TextFieldState
 import dev.hermeskotlin.core.chat.OutgoingAttachment
+import dev.hermeskotlin.ui.LocalAppSettings
 import dev.hermeskotlin.core.chat.ShownAttachment
 import dev.hermeskotlin.core.chat.AttachmentKind
 import dev.hermeskotlin.core.rooms.RoomAttachment
@@ -489,6 +490,7 @@ private fun RoomComposer(room: OpenRoom, viewModel: RoomActions) {
         rememberAttachmentPicker(
             onPicked = { viewModel.addAttachments(it, draftKey) },
             onError = { viewModel.attachmentError(it, draftKey) },
+            maxBytes = LocalAppSettings.current.attachmentSize.bytes.toLong(),
         )
     }
     AttachSheet(attachOpen, onDismiss = { attachOpen = false }, picker = picker,
