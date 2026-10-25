@@ -17,6 +17,10 @@ enum class ThemeMode { System, Light, Dark }
 /** The accent [AppSettings.accent] starts with: Desktop's blue. */
 const val DEFAULT_ACCENT = "Blue"
 
+/** Default and choices for how long the gateway keeps messages read from this phone. */
+const val DEFAULT_MESSAGE_RETENTION_DAYS = 7
+val MESSAGE_RETENTION_DAYS_OPTIONS = listOf(1, 2, 7, 14)
+
 /** How much bigger or smaller than the system font size the app draws text. */
 enum class TextSize(val scale: Float) {
     Small(0.9f),
@@ -128,6 +132,8 @@ data class AppSettings(
     val phoneTools: Boolean = false,
     /** The phone tools switched on, by gateway name (`PhoneTool.id`). Each starts off. */
     val phoneToolsOn: List<String> = emptyList(),
+    /** How many days the gateway keeps messages read from this phone, once the Messages tool is on and synced. */
+    val messageRetentionDays: Int = DEFAULT_MESSAGE_RETENTION_DAYS,
     /**
      * An approval or a question from a chat out of sight rings like an incoming call instead of a plain notification.
      * Only with [phoneTools] on (see [ringsForAnswers]). It only ever rings this phone: the agent never calls anyone.

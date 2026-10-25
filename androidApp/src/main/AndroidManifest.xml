@@ -31,6 +31,8 @@
     <!-- The Calendar phone tool: reads events, and adds or moves one after the user allows it. -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <!-- The Messages phone tool reads SMS/MMS when allowed; drafts go to the messaging app, never sent by Herald. -->
+    <uses-permission android:name="android.permission.READ_SMS" />
     <!-- The Contacts phone tool looks people up by name, number or email; it never writes. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!--

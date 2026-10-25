@@ -86,6 +86,7 @@ private class AndroidPhoneToolAccess(
             "Allow location all the time: places are watched while Herald is closed. Choose \"Allow all the time\"."
         tool == PhoneTool.Calendar && (!granted(READ_CALENDAR) || !granted(WRITE_CALENDAR)) -> "Allow Herald to use your calendar."
         tool == PhoneTool.Contacts && !granted(READ_CONTACTS) -> "Allow Herald to read your contacts."
+        tool == PhoneTool.Messages && !granted(READ_SMS) -> "Allow Herald to read messages, to search or sync them."
         // A call from the agent rings as an approval does.
         tool == PhoneTool.CallMe -> ringsMissing()
         tool == PhoneTool.Health -> when {
@@ -114,6 +115,7 @@ private class AndroidPhoneToolAccess(
             tool == PhoneTool.Geofences && needsBackground() -> prompt(BACKGROUND)
             tool == PhoneTool.Calendar && (!granted(READ_CALENDAR) || !granted(WRITE_CALENDAR)) -> prompt(READ_CALENDAR, WRITE_CALENDAR)
             tool == PhoneTool.Contacts && !granted(READ_CONTACTS) -> prompt(READ_CONTACTS)
+            tool == PhoneTool.Messages && !granted(READ_SMS) -> prompt(READ_SMS)
             tool == PhoneTool.Health && health != null && health.status != HealthConnectClient.SDK_AVAILABLE &&
                 (
                     health.status == HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED ||
@@ -243,6 +245,7 @@ private class AndroidPhoneToolAccess(
         const val READ_CALENDAR = Manifest.permission.READ_CALENDAR
         const val WRITE_CALENDAR = Manifest.permission.WRITE_CALENDAR
         const val READ_CONTACTS = Manifest.permission.READ_CONTACTS
+        const val READ_SMS = Manifest.permission.READ_SMS
         const val HEALTH_CONNECT = "com.google.android.apps.healthdata"
         val HEALTH_READS = setOf(
             HealthPermission.getReadPermission(StepsRecord::class),

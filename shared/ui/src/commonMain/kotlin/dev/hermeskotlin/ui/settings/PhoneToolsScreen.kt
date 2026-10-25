@@ -42,6 +42,7 @@ import com.composables.icons.lucide.Hourglass
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.MapPin
 import com.composables.icons.lucide.MapPinned
+import com.composables.icons.lucide.MessagesSquare
 import com.composables.icons.lucide.Moon
 import com.composables.icons.lucide.PhoneCall
 import com.composables.icons.lucide.PhoneIncoming
@@ -67,6 +68,7 @@ import dev.hermeskotlin.core.phone.clockTime
 import dev.hermeskotlin.core.phone.enabledPhoneTools
 import dev.hermeskotlin.core.push.KnownPhone
 import dev.hermeskotlin.core.settings.AppSettings
+import dev.hermeskotlin.core.settings.MESSAGE_RETENTION_DAYS_OPTIONS
 import dev.hermeskotlin.designsystem.background
 import dev.hermeskotlin.designsystem.body
 import dev.hermeskotlin.designsystem.bodySmall
@@ -75,7 +77,9 @@ import dev.hermeskotlin.designsystem.components.Button
 import dev.hermeskotlin.designsystem.components.ButtonSize
 import dev.hermeskotlin.designsystem.components.ButtonVariant
 import dev.hermeskotlin.designsystem.components.Dialog
+import dev.hermeskotlin.designsystem.components.DropdownMenu
 import dev.hermeskotlin.designsystem.components.IconButton
+import dev.hermeskotlin.designsystem.components.MenuChoice
 import dev.hermeskotlin.designsystem.components.halo
 import dev.hermeskotlin.designsystem.accentText
 import dev.hermeskotlin.designsystem.danger
@@ -114,6 +118,7 @@ fun PhoneToolsScreen(onBack: () -> Unit, viewModel: PhoneToolsViewModel = koinVi
             // Turning on a tool that can't work yet asks for what it needs straight away.
             if (on && access.missing(tool) != null) access.request(tool)
         },
+        onMessageRetentionDays = viewModel::setMessageRetentionDays,
         onSetUp = viewModel::setUp,
         phones = phones,
         onMovePhone = viewModel::movePhone,
@@ -185,6 +190,7 @@ internal fun PhoneToolsView(
     onBack: () -> Unit,
     onAll: (Boolean) -> Unit,
     onTool: (PhoneTool, Boolean) -> Unit,
+    onMessageRetentionDays: (Int) -> Unit = {},
     onSetUp: () -> Unit,
     phones: List<KnownPhone> = emptyList(),
     onMovePhone: (String, Int) -> Unit = { _, _ -> },
@@ -277,7 +283,7 @@ internal fun PhoneToolsView(
                 if (settings.phoneTools) {
                     Section("Tools") {
                         // The agent's calls ring: they're under Calls.
-                        PhoneTool.entries.filter { it != PhoneTool.CallMe }.forEachIndexed { i, tool ->
+                        PhoneTool.entries.filter { it != PhoneTool.CallMe && it != PhoneTool.Messages }.forEachIndexed { i, tool ->
                             if (i > 0) Divider()
                             val on = tool.id in settings.phoneToolsOn
                             // Only once it's on: a tool that's off needs nothing, and asking early would nag.
@@ -300,6 +306,18 @@ internal fun PhoneToolsView(
                                 ActionRow(more, Lucide.ShieldCheck) { onAllowOptional(tool) }
                             }
                         }
+                    }
+                    Section("Messages") {
+                        val messagesOn = PhoneTool.Messages.id in settings.phoneToolsOn
+                        SwitchRow(
+                            title = PhoneTool.Messages.title,
+                            detail = PhoneTool.Messages.detail,
+                            checked = messagesOn,
+                            onCheckedChange = { onTool(PhoneTool.Messages, it) },
+                            icon = PhoneTool.Messages.icon,
+                        )
+                        Divider()
+                        MessagesRetentionRow(settings.messageRetentionDays, onMessageRetentionDays)
                     }
                     Section("Calls") {
                         val callsMe = PhoneTool.CallMe.id in settings.phoneToolsOn
@@ -609,6 +627,50 @@ private fun UseRow(use: PhoneToolUse, nowMillis: Long) {
     }
 }
 
+/** How long the gateway keeps messages read from the phone; applies after Messages is enabled and synced. */
+private const val MESSAGES_RETENTION_DETAIL =
+    "The gateway deletes older messages after Messages is on and this setting has synced."
+
+@Composable
+private fun MessagesRetentionRow(days: Int, onSelect: (Int) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 14.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconTile(Lucide.CalendarDays)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text("Keep messages for", style = Theme[typography][body], color = Theme[colors][text])
+            Text(MESSAGES_RETENTION_DETAIL, style = Theme[typography][bodySmall], color = Theme[colors][textTertiary])
+        }
+        DropdownMenu(
+            expanded = open,
+            onExpandedChange = { open = it },
+            items = {
+                MESSAGE_RETENTION_DAYS_OPTIONS.forEach { option ->
+                    MenuChoice(
+                        text = retentionLabel(option),
+                        icon = Lucide.CalendarDays,
+                        selected = option == days,
+                        onClick = { open = false; onSelect(option) },
+                    )
+                }
+            },
+        ) {
+            Button(
+                text = retentionLabel(days),
+                onClick = { open = !open },
+                variant = ButtonVariant.Secondary,
+                size = ButtonSize.Small,
+                trailingIcon = if (open) Lucide.ChevronUp else Lucide.ChevronDown,
+            )
+        }
+    }
+}
+
+private fun retentionLabel(days: Int) = "$days ${if (days == 1) "day" else "days"}"
+
 /** A row that opens a page: [detail] under the title, a chevron at the end. */
 @Composable
 internal fun NavRow(title: String, detail: String, icon: ImageVector, onClick: () -> Unit, detailLines: Int = Int.MAX_VALUE) {
@@ -645,6 +707,7 @@ internal val PhoneTool.icon: ImageVector
         PhoneTool.Geofences -> Lucide.MapPinned
         PhoneTool.Calendar -> Lucide.CalendarDays
         PhoneTool.Contacts -> Lucide.Contact
+        PhoneTool.Messages -> Lucide.MessagesSquare
         PhoneTool.Health -> Lucide.HeartPulse
         PhoneTool.CallMe -> Lucide.PhoneCall
     }

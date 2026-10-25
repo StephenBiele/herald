@@ -409,6 +409,17 @@ class PushApi(private val connection: GatewayConnection) {
         return output("phone answer $body")?.let(::phoneReply)?.ok == true
     }
 
+    /** Sends one bounded, explicitly incomplete batch to the gateway's expiring message store. */
+    suspend fun phoneSync(deviceId: String, key: String, days: Int, messages: JsonArray): Boolean {
+        val body = buildJsonObject {
+            put("device_id", deviceId)
+            put("key", key)
+            put("retention_days", days)
+            put("messages", messages)
+        }
+        return output("phone sync $body")?.let(::phoneReply)?.ok == true
+    }
+
     /** What `/herald-push cron <arg>` printed (the Inbox's calls), or null when the plugin isn't loaded. */
     suspend fun cron(arg: String): String? = output("cron $arg")
 

@@ -42,9 +42,11 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.booleanOrNull
 
 /**
  * Answers the agent's phone tool calls. While connected it tells the gateway's herald-push plugin which tools
@@ -83,6 +85,7 @@ class PhoneToolsBridge(
 
     /** Whether the gateway's plugin lists phones ([PushApi.PHONE_LIST_PLUGIN_VERSION]). */
     private var canListPhones = false
+    private var offersMessages = false
 
     /** What the user asked of the gateway's plugin: [n] counts the asks, [update] when the last was Update. */
     private data class Ask(val n: Int = 0, val update: Boolean = false)
@@ -108,12 +111,14 @@ class PhoneToolsBridge(
     fun start() {
         scope.launch {
             val client = connection.state.map { (it as? ConnectionState.Connected)?.client }.distinctUntilChanged()
-            val enabled = settings.settings.filterNotNull().map { it.enabledPhoneTools() }.distinctUntilChanged()
+            val enabled = settings.settings.filterNotNull()
+                .map { it.enabledPhoneTools() to it.messageRetentionDays }.distinctUntilChanged()
             // A plugin update from Notifications anywhere: look again, so the page doesn't still offer it. Turned on
             // (or off) after the tools were reported: report again, so a call rings through the push off the network.
-            combine(client, enabled, setUps, api.updates, api.registrations) { c, on, setUp, _, _ -> Triple(c, on, setUp) }.collectLatest { (c, on, setUp) ->
+            combine(client, enabled, setUps, api.updates, api.registrations) { c, prefs, setUp, _, _ -> Triple(c, prefs, setUp) }.collectLatest { (c, prefs, setUp) ->
+                val (on, days) = prefs
                 refuseSwitchedOff(on)
-                serve(c, on, setUp)
+                serve(c, on, setUp, days)
             }
         }
     }
@@ -133,7 +138,7 @@ class PhoneToolsBridge(
         }
     }
 
-    private suspend fun serve(client: JsonRpcClient?, on: Set<PhoneTool>, setUp: Ask) {
+    private suspend fun serve(client: JsonRpcClient?, on: Set<PhoneTool>, setUp: Ask, retentionDays: Int) {
         // Another connection may be another gateway: its phones aren't these. A switch flipped keeps them.
         if (client !== listedOn) _phones.value = emptyList()
         listedOn = client
@@ -155,6 +160,20 @@ class PhoneToolsBridge(
                 return@coroutineScope
             }
             launch { phonesCall { api.phoneList(it.id, it.key) } }
+            if (PhoneTool.Messages in on && offersMessages) {
+                launch {
+                    while (true) {
+                        try {
+                            syncMessages(retentionDays)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            // Retain the watermark; the next pass retries this range.
+                        }
+                        delay(MESSAGE_SYNC_MS)
+                    }
+                }
+            }
             launch {
                 client.events
                     .filter { it.type == "tool.start" && toolName(it.payload)?.startsWith(TOOL_PREFIX) == true }
@@ -292,6 +311,7 @@ class PhoneToolsBridge(
             if (!canListPhones) _phones.value = emptyList()
             val me = identity()
             val offered = api.phoneTools(me.id, me.key, deviceName(), on.map { it.id }.sorted(), pushId()) ?: return false
+            offersMessages = PhoneTool.Messages.id in offered
             store.put(reportedKey(), if (on.isEmpty()) "0" else "1")
             val missing = on.filter { it.id !in offered }
             _status.value = PhoneToolsStatus(
@@ -315,6 +335,31 @@ class PhoneToolsBridge(
         if (settings.settings.value?.pushAnywhere != true) return null
         val url = gateways.current()?.gatewayUrl?.value ?: return null
         return keys.deviceId.takeIf { keys.pinnedGatewayUrl() == url }
+    }
+
+    /** Provider snapshots are distinct from notifications and live search. Backfill is capped and best-effort. */
+    private suspend fun syncMessages(days: Int) {
+        val me = identity()
+        val key = MESSAGE_SYNC_KEY + (gateways.current()?.gatewayUrl?.value ?: "") + ":" + days
+        val cutoff = now() - days * 86_400_000L
+        val since = (store.get(key)?.toLongOrNull()?.minus(MESSAGE_OVERLAP_MS) ?: cutoff).coerceAtLeast(cutoff)
+        val started = now()
+        var offset = 0
+        var more = true
+        while (more && offset < MESSAGE_MAX_ROWS && PhoneTool.Messages in settings.settings.value?.enabledPhoneTools().orEmpty()) {
+            val result = runner.run(PhoneTool.Messages, buildJsonObject {
+                put("action", "sync")
+                put("since_ms", since)
+                put("offset", offset)
+                put("limit", MESSAGE_BATCH)
+            }, "") as? JsonObject ?: return
+            val batch = result["messages"] as? JsonArray ?: return
+            if (!api.phoneSync(me.id, me.key, days, batch)) return
+            offset += batch.size
+            more = (result["has_more"] as? JsonPrimitive)?.booleanOrNull ?: (batch.size == MESSAGE_BATCH)
+            if (batch.isEmpty()) break
+        }
+        if (!more) store.put(key, started.toString())
     }
 
     /** Fetches the calls waiting for this phone and starts each one not already running or answered. */
@@ -503,6 +548,11 @@ class PhoneToolsBridge(
         const val UNKNOWN_TOOL = "This version of Herald doesn't have that tool; the user can update Herald."
         private val WAITS_FOR_USER = setOf(State.NotInstalled, State.Outdated)
         private const val MAX_ANSWERED = 200
+        private const val MESSAGE_SYNC_KEY = "phone.messages.synced."
+        private const val MESSAGE_SYNC_MS = 5 * 60_000L
+        private const val MESSAGE_OVERLAP_MS = 5 * 60_000L
+        private const val MESSAGE_BATCH = 40
+        private const val MESSAGE_MAX_ROWS = 10_000
         private const val ID_BYTES = 16
         private const val KEY_BYTES = 32
         private const val KEY_IDENTITY = "phone.identity"

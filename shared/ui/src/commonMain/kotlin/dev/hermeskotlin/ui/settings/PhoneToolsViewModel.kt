@@ -11,6 +11,7 @@ import dev.hermeskotlin.core.phone.PhoneToolsBridge
 import dev.hermeskotlin.core.phone.PhoneToolsStatus
 import dev.hermeskotlin.core.push.KnownPhone
 import dev.hermeskotlin.core.settings.AppSettings
+import dev.hermeskotlin.core.settings.MESSAGE_RETENTION_DAYS_OPTIONS
 import dev.hermeskotlin.core.settings.SettingsStore
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -44,6 +45,11 @@ class PhoneToolsViewModel(
 
     fun setTool(tool: PhoneTool, on: Boolean) = store.update { s ->
         s.copy(phoneToolsOn = if (on) (s.phoneToolsOn + tool.id).distinct() else s.phoneToolsOn - tool.id)
+    }
+
+    fun setMessageRetentionDays(days: Int) {
+        require(days in MESSAGE_RETENTION_DAYS_OPTIONS) { "Unsupported message retention: $days days" }
+        store.update { it.copy(messageRetentionDays = days) }
     }
 
     fun setRings(on: Boolean) = store.update { it.copy(phoneRings = on) }

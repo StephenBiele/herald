@@ -150,6 +150,25 @@ class SettingsStoreTest {
     }
 
     @Test
+    fun messagesAreOffAndUseSevenDayRetentionUntilChangedAndRemembered() = runTest {
+        val disk = InMemoryKeyValueStore().apply { put("settings.v1", """{"theme":"Dark"}""") }
+        val first = SettingsStore(disk, backgroundScope)
+        val defaults = first.settings.filterNotNull().first()
+        assertEquals(false, defaults.phoneTools)
+        assertEquals(emptyList(), defaults.phoneToolsOn)
+        assertEquals(7, defaults.messageRetentionDays)
+        assertEquals(listOf(1, 2, 7, 14), MESSAGE_RETENTION_DAYS_OPTIONS)
+
+        first.update { it.copy(messageRetentionDays = 2, phoneToolsOn = listOf("phone_messages")) }
+        advanceUntilIdle()
+
+        val restored = SettingsStore(disk, backgroundScope).settings.filterNotNull().first()
+        assertEquals(2, restored.messageRetentionDays)
+        assertEquals(listOf("phone_messages"), restored.phoneToolsOn)
+        assertEquals(ThemeMode.Dark, restored.theme)
+    }
+
+    @Test
     fun unreadableStoredSettingsFallBackToDefaults() = runTest {
         val disk = InMemoryKeyValueStore().apply { put("settings.v1", """{"theme":"Neon"}""") }
         assertEquals(AppSettings(), SettingsStore(disk, backgroundScope).settings.filterNotNull().first())

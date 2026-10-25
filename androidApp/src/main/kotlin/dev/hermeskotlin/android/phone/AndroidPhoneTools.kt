@@ -37,6 +37,7 @@ class AndroidPhoneTools(
     private val geofences = GeofenceTool(context, confirmations, location, places, chats)
     private val calendar = CalendarTool(context, confirmations)
     private val contacts = ContactsTool(context)
+    private val messages = MessagesTool(context)
     private val health = HealthTool(context)
     private val callMe = CallMeTool(notifications, chats)
 
@@ -53,6 +54,7 @@ class AndroidPhoneTools(
             PhoneTool.Geofences -> geofences.run(args, session)
             PhoneTool.Calendar -> calendar.run(args)
             PhoneTool.Contacts -> contacts.run(args)
+            PhoneTool.Messages -> messages.run(args)
             PhoneTool.Health -> health.run(args)
             PhoneTool.CallMe -> callMe.run(args, session)
         }

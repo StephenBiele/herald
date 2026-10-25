@@ -81,6 +81,7 @@ class PhoneToolsBridgeTest {
         val answers = mutableMapOf<String, JsonObject>()
         val installs = mutableListOf<JsonObject>()
         val heres = mutableListOf<String>()
+        val syncBodies = mutableListOf<JsonObject>()
 
         /** The phones it knows, in order: others the test adds, and each phone that reports. */
         val phones = mutableListOf<String>()
@@ -210,6 +211,10 @@ class PhoneToolsBridgeTest {
                             put("requests", JsonArray(waiting.filter { it["id"]!!.jsonPrimitive.content !in answers }))
                             now?.let { put("now", it) }
                         }
+                        "sync" -> {
+                            syncBodies += body
+                            buildJsonObject { put("ok", true) }
+                        }
                         else -> {
                             answers[body["id"]!!.jsonPrimitive.content] = body
                             buildJsonObject { put("ok", true) }
@@ -240,6 +245,12 @@ class PhoneToolsBridgeTest {
                 }
             }
             if (args["fail"] != null) throw PhoneToolException("Battery is unknown.")
+            if (tool == PhoneTool.Messages && args["action"]?.jsonPrimitive?.content == "sync") {
+                return buildJsonObject {
+                    put("messages", JsonArray(emptyList()))
+                    put("has_more", false)
+                }
+            }
             return buildJsonObject { put("tool", tool.id) }
         }
     }
@@ -334,6 +345,25 @@ class PhoneToolsBridgeTest {
         // One key, made once and sent with every call.
         assertEquals(1, plugin.keys.size)
         assertEquals(64, plugin.keys.single().length)
+    }
+
+    @Test
+    fun messageRetentionChangeReReportsAndSwitchingOffStopsSyncing() = runTest {
+        val s = setup(Runner(), on = listOf(PhoneTool.Messages))
+        val plugin = Plugin()
+        connect(s, plugin)
+        until { plugin.syncBodies.isNotEmpty() }
+        assertEquals(7, plugin.syncBodies.last()["retention_days"]!!.jsonPrimitive.content.toInt())
+        assertEquals(PhoneTool.Messages.id, plugin.reports.last().single())
+
+        s.settings.update { it.copy(messageRetentionDays = 2) }
+        until { plugin.syncBodies.any { it["retention_days"]!!.jsonPrimitive.content == "2" } }
+
+        s.settings.update { it.copy(phoneToolsOn = emptyList()) }
+        until { plugin.reports.last().isEmpty() }
+        val uploads = plugin.syncBodies.size
+        delay(PhoneToolsBridge.POLL_MS * 2)
+        assertEquals(uploads, plugin.syncBodies.size, "kept uploading after Messages was switched off")
     }
 
     @Test
